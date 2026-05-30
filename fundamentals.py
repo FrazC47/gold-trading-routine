@@ -1,8 +1,8 @@
 import yfinance as yf
 import pandas as pd
-import pandas_datareader.data as web
 import datetime
 import requests
+from io import StringIO
 
 # Insert your Alpha Vantage API key here
 ALPHA_VANTAGE_KEY = "A5XP1DKSB953D5L7"
@@ -37,10 +37,15 @@ def get_dual_macro_history():
         except Exception as e:
             print(f"Error fetching {name}: {e}")
             
-    # 2. Fetch FRED Data (10-Year Real Yield)
+    # 2. Fetch FRED Data (10-Year Real Yield) via direct CSV endpoint
     try:
-        real_yield_data = web.DataReader('DFII10', 'fred', start, end)
-        macro_df['10Y_Real'] = real_yield_data['DFII10']
+        fred_url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFII10"
+        fred_resp = requests.get(fred_url, timeout=15)
+        fred_df = pd.read_csv(StringIO(fred_resp.text), parse_dates=['DATE'], index_col='DATE')
+        fred_df = fred_df.loc[fred_df.index >= pd.Timestamp(start)]
+        fred_df = fred_df.replace('.', float('nan')).dropna()
+        fred_df['DFII10'] = fred_df['DFII10'].astype(float)
+        macro_df['10Y_Real'] = fred_df['DFII10']
     except Exception as e:
         print(f"Error fetching FRED data: {e}")
 
