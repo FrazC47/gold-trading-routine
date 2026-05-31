@@ -41,7 +41,7 @@ def get_dual_macro_history():
     try:
         fred_url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFII10"
         fred_resp = requests.get(fred_url, timeout=15)
-        fred_df = pd.read_csv(StringIO(fred_resp.text), parse_dates=['DATE'], index_col='DATE')
+        fred_df = pd.read_csv(StringIO(fred_resp.text), parse_dates=['observation_date'], index_col='observation_date')
         fred_df = fred_df.loc[fred_df.index >= pd.Timestamp(start)]
         fred_df = fred_df.replace('.', float('nan')).dropna()
         fred_df['DFII10'] = fred_df['DFII10'].astype(float)
