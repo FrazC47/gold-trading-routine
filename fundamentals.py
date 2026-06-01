@@ -52,10 +52,17 @@ def get_dual_macro_history():
         else:
             eur = fetch_alpha_vantage_fx(start_40d)
         
+        # Normalize all indexes to DatetimeIndex before concat — sheet-backed frames
+        # carry datetime.date indexes while the Alpha Vantage EUR/USD fallback returns
+        # a DatetimeIndex; mixing types causes concat to split each day into two rows.
+        for f in [gold, dxy, tnx, fred_df, gld_price, eur, gld_vol]:
+            if not f.empty:
+                f.index = pd.to_datetime(f.index)
+
         # Combine
-        macro_df = pd.concat([gold, dxy, tnx, fred_df, gld_price, eur], axis=1)
+        macro_df = pd.concat([gold, dxy, tnx, fred_df, gld_price, eur], axis=1, sort=True)
         volume_df = gld_vol
-        
+
         # Filter to 40 days for display
         cutoff = (end - datetime.timedelta(days=40)).date()
         macro_df = macro_df[macro_df.index >= pd.Timestamp(cutoff)]
