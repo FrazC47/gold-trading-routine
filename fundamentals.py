@@ -58,8 +58,10 @@ def get_dual_macro_history():
         
         # Filter to 40 days for display
         cutoff = (end - datetime.timedelta(days=40)).date()
+        macro_df.index = pd.to_datetime(macro_df.index)
         macro_df = macro_df[macro_df.index >= pd.Timestamp(cutoff)]
         if not volume_df.empty:
+            volume_df.index = pd.to_datetime(volume_df.index)
             volume_df = volume_df[volume_df.index >= pd.Timestamp(cutoff)]
     
     else:
