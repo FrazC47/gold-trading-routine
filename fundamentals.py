@@ -60,7 +60,7 @@ def get_dual_macro_history():
                 f.index = pd.to_datetime(f.index)
 
         # Combine
-        macro_df = pd.concat([gold, dxy, tnx, fred_df, gld_price, eur], axis=1)
+        macro_df = pd.concat([gold, dxy, tnx, fred_df, gld_price, eur], axis=1, sort=True)
         volume_df = gld_vol
 
         # Filter to 40 days for display
