@@ -12,13 +12,14 @@ import requests
 import io
 
 # ─── ATTEMPT GOOGLE SHEETS IMPORT ────────────────────────────────────
+import yfinance as yf  # always needed for fallback path
+
 try:
     import sheets_db as db
     SHEETS_AVAILABLE = True
 except ImportError:
     SHEETS_AVAILABLE = False
     print("⚠️  sheets_db.py not found — falling back to direct yfinance fetch.")
-    import yfinance as yf
 
 # ─── ALPHA VANTAGE KEY ───────────────────────────────────────────────
 ALPHA_VANTAGE_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "A5XP1DKSB953D5L7")
@@ -32,38 +33,40 @@ def get_dual_macro_history():
     end = datetime.datetime.now()
     start_40d = end - datetime.timedelta(days=40)
     
+    _sheets_ok = False
     if SHEETS_AVAILABLE:
-        # ── CLOUD PATH: Read from Sheets, fill gaps ─────────────────
-        data = db.sync_all()
-        
-        # Build combined DataFrames from Sheets data
-        gold = data["GC=F"].set_index("date")[["close"]].rename(columns={"close": "Gold"})
-        dxy = data["DX-Y.NYB"].set_index("date")[["close"]].rename(columns={"close": "DXY"})
-        tnx = data["^TNX"].set_index("date")[["close"]].rename(columns={"close": "10Y_Nominal"})
-        gld_price = data["GLD"].set_index("date")[["close"]].rename(columns={"close": "GLD_ETF"})
-        gld_vol = data["GLD"].set_index("date")[["volume"]].rename(columns={"volume": "GLD_Volume"})
-        
-        # FRED real yield
-        fred_df = data["FRED"].set_index("date")[["dfii10"]].rename(columns={"dfii10": "10Y_Real"})
-        
-        # EUR/USD — try Sheets first, fallback to AV
-        if "EURUSD=X" in data and not data["EURUSD=X"].empty:
-            eur = data["EURUSD=X"].set_index("date")[["close"]].rename(columns={"close": "EUR_USD"})
-        else:
-            eur = fetch_alpha_vantage_fx(start_40d)
-        
-        # Combine
-        macro_df = pd.concat([gold, dxy, tnx, fred_df, gld_price, eur], axis=1)
-        volume_df = gld_vol
-        
-        # Filter to 40 days for display
-        cutoff = (end - datetime.timedelta(days=40)).date()
-        macro_df = macro_df[macro_df.index >= pd.Timestamp(cutoff)]
-        if not volume_df.empty:
-            volume_df = volume_df[volume_df.index >= pd.Timestamp(cutoff)]
-    
-    else:
-        # ── FALLBACK PATH: Direct fetch (original behavior) ─────────
+        try:
+            # ── CLOUD PATH: Read from Sheets, fill gaps ─────────────
+            data = db.sync_all()
+
+            gold = data["GC=F"].set_index("date")[["close"]].rename(columns={"close": "Gold"})
+            dxy = data["DX-Y.NYB"].set_index("date")[["close"]].rename(columns={"close": "DXY"})
+            tnx = data["^TNX"].set_index("date")[["close"]].rename(columns={"close": "10Y_Nominal"})
+            gld_price = data["GLD"].set_index("date")[["close"]].rename(columns={"close": "GLD_ETF"})
+            gld_vol = data["GLD"].set_index("date")[["volume"]].rename(columns={"volume": "GLD_Volume"})
+
+            fred_df = data["FRED"].set_index("date")[["dfii10"]].rename(columns={"dfii10": "10Y_Real"})
+
+            if "EURUSD=X" in data and not data["EURUSD=X"].empty:
+                eur = data["EURUSD=X"].set_index("date")[["close"]].rename(columns={"close": "EUR_USD"})
+            else:
+                eur = fetch_alpha_vantage_fx(start_40d)
+
+            macro_df = pd.concat([gold, dxy, tnx, fred_df, gld_price, eur], axis=1)
+            volume_df = gld_vol
+
+            macro_df.index = pd.to_datetime(macro_df.index)
+            volume_df.index = pd.to_datetime(volume_df.index)
+            cutoff = (end - datetime.timedelta(days=40)).date()
+            macro_df = macro_df[macro_df.index >= pd.Timestamp(cutoff)]
+            if not volume_df.empty:
+                volume_df = volume_df[volume_df.index >= pd.Timestamp(cutoff)]
+            _sheets_ok = True
+        except Exception as _e:
+            print(f"⚠️  Sheets sync failed ({_e}). Falling back to direct yfinance fetch.")
+
+    if not _sheets_ok:
+        # ── FALLBACK PATH: Direct fetch ──────────────────────────────
         print("--- FALLBACK: Fetching directly from yfinance/FRED/AV ---")
         macro_df, volume_df = fetch_all_direct(start_40d, end)
     
@@ -129,7 +132,8 @@ def fetch_all_direct(start, end):
             data = yf.Ticker(ticker)
             history = data.history(start=start, end=end)
             if not history.empty:
-                history.index = history.index.tz_localize(None)
+                if history.index.tz is not None:
+                    history.index = history.index.tz_convert(None)
                 macro_df[name] = history["Close"]
                 if name == "GLD_ETF":
                     volume_df["GLD_Volume"] = history["Volume"]
