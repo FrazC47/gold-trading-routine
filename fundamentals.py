@@ -43,8 +43,24 @@ def get_dual_macro_history():
         gld_price = data["GLD"].set_index("date")[["close"]].rename(columns={"close": "GLD_ETF"})
         gld_vol = data["GLD"].set_index("date")[["volume"]].rename(columns={"volume": "GLD_Volume"})
         
-        # FRED real yield
-        fred_df = data["FRED"].set_index("date")[["dfii10"]].rename(columns={"dfii10": "10Y_Real"})
+        # FRED real yield — use Sheets data if available, else embed last-known values
+        if not data["FRED"].empty and "dfii10" in data["FRED"].columns:
+            fred_df = data["FRED"].set_index("date")[["dfii10"]].rename(columns={"dfii10": "10Y_Real"})
+        else:
+            # Fallback: hardcoded from last Sheets sync (FRED API unavailable)
+            fred_fallback = {
+                "2026-05-04": 1.95, "2026-05-05": 1.96, "2026-05-06": 1.94,
+                "2026-05-07": 1.96, "2026-05-08": 1.93, "2026-05-11": 1.95,
+                "2026-05-12": 1.99, "2026-05-13": 1.99, "2026-05-14": 2.00,
+                "2026-05-15": 2.10, "2026-05-18": 2.13, "2026-05-19": 2.18,
+                "2026-05-20": 2.13, "2026-05-21": 2.18, "2026-05-22": 2.16,
+                "2026-05-26": 2.10, "2026-05-27": 2.09, "2026-05-28": 2.06,
+            }
+            fred_df = pd.DataFrame.from_dict(
+                {"10Y_Real": fred_fallback}, orient="columns"
+            )
+            fred_df.index = pd.to_datetime(list(fred_fallback.keys()))
+            print("    [fundamentals] FRED API unavailable — using last synced values (through 2026-05-28)")
         
         # EUR/USD — try Sheets first, fallback to AV
         if "EURUSD=X" in data and not data["EURUSD=X"].empty:
@@ -54,13 +70,15 @@ def get_dual_macro_history():
         
         # Combine
         macro_df = pd.concat([gold, dxy, tnx, fred_df, gld_price, eur], axis=1)
+        macro_df.index = pd.to_datetime(macro_df.index)
         volume_df = gld_vol
-        
+        volume_df.index = pd.to_datetime(volume_df.index)
+
         # Filter to 40 days for display
-        cutoff = (end - datetime.timedelta(days=40)).date()
-        macro_df = macro_df[macro_df.index >= pd.Timestamp(cutoff)]
+        cutoff = pd.Timestamp(end - datetime.timedelta(days=40))
+        macro_df = macro_df[macro_df.index >= cutoff]
         if not volume_df.empty:
-            volume_df = volume_df[volume_df.index >= pd.Timestamp(cutoff)]
+            volume_df = volume_df[volume_df.index >= cutoff]
     
     else:
         # ── FALLBACK PATH: Direct fetch (original behavior) ─────────
@@ -68,7 +86,10 @@ def get_dual_macro_history():
         macro_df, volume_df = fetch_all_direct(start_40d, end)
     
     # ── EXTRACT WINDOWS ───────────────────────────────────────────
-    combined_df = pd.concat([macro_df, volume_df], axis=1).dropna()
+    macro_df = macro_df[~macro_df.index.duplicated(keep="last")]
+    volume_df = volume_df[~volume_df.index.duplicated(keep="last")]
+    combined_df = pd.concat([macro_df, volume_df], axis=1)
+    combined_df = combined_df.ffill().dropna(subset=["Gold", "DXY", "10Y_Nominal", "GLD_Volume"])
     regime_20d = combined_df.tail(20)
     momentum_5d = combined_df.tail(5)
     
@@ -98,8 +119,9 @@ def get_dual_macro_history():
     
     dxy_5d_high = momentum_5d["DXY"].max()
     dxy_5d_high_date = momentum_5d["DXY"].idxmax()
-    real_5d_high = momentum_5d["10Y_Real"].max()
-    real_5d_high_date = momentum_5d["10Y_Real"].idxmax()
+    real_col = momentum_5d["10Y_Real"].dropna()
+    real_5d_high = real_col.max() if not real_col.empty else float("nan")
+    real_5d_high_date = real_col.idxmax() if not real_col.empty else "N/A"
     gold_5d_low = momentum_5d["Gold"].min()
     gold_5d_low_date = momentum_5d["Gold"].idxmin()
     gold_5d_open = momentum_5d["Gold"].iloc[0]
