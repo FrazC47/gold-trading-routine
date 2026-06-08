@@ -70,9 +70,12 @@ def sync_ticker(ticker):
         if df_yf.empty:
             return pd.DataFrame(columns=config["cols"])
         df_yf = df_yf.reset_index()
-        df_yf.columns = [c.lower().replace(' ', '_') for c in df_yf.columns]
+        if isinstance(df_yf.columns, pd.MultiIndex):
+            df_yf.columns = [c[0].lower().replace(' ', '_') for c in df_yf.columns]
+        else:
+            df_yf.columns = [c.lower().replace(' ', '_') for c in df_yf.columns]
         df_yf["date"] = pd.to_datetime(df_yf["date"]).dt.date
-        
+
         for _, row in df_yf.iterrows():
             r = [str(row["date"]), row["open"], row["high"], row["low"], row["close"]]
             if "volume" in config["cols"]:
@@ -100,9 +103,12 @@ def sync_ticker(ticker):
         return df[config["cols"]]
     
     df_yf = df_yf.reset_index()
-    df_yf.columns = [c.lower().replace(' ', '_') for c in df_yf.columns]
+    if isinstance(df_yf.columns, pd.MultiIndex):
+        df_yf.columns = [c[0].lower().replace(' ', '_') for c in df_yf.columns]
+    else:
+        df_yf.columns = [c.lower().replace(' ', '_') for c in df_yf.columns]
     df_yf["date"] = pd.to_datetime(df_yf["date"]).dt.date
-    
+
     appended = 0
     for _, row in df_yf.iterrows():
         if row["date"] > latest:
@@ -115,40 +121,58 @@ def sync_ticker(ticker):
     print(f"    [sheets_db] {ticker}: synced {appended} new rows")
     return df[config["cols"]]
 
+# ─── FRED FETCH HELPER ───────────────────────────────────────────────
+def _fetch_fred_csv(max_retries=3):
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFII10"
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+            df = pd.read_csv(io.StringIO(resp.text))
+            df.columns = ["date", "dfii10"]
+            df["date"] = pd.to_datetime(df["date"]).dt.date
+            return df
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                print(f"    [sheets_db] FRED fetch attempt {attempt+1} failed ({e}), retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                print(f"    [sheets_db] FRED: all retries failed — {e}")
+                return pd.DataFrame(columns=["date", "dfii10"])
+
 # ─── SYNC FRED ───────────────────────────────────────────────────────
 def sync_fred():
     records = _read_sheet("FRED")
-    
+
     if not records:
         print("    [sheets_db] FRED: cold start — fetching from FRED...")
-        url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFII10"
-        df = pd.read_csv(url)
-        df.columns = ["date", "dfii10"]
-        df["date"] = pd.to_datetime(df["date"]).dt.date
+        df = _fetch_fred_csv()
+        if df.empty:
+            return df
         df = df[df["date"] >= (datetime.now().date() - timedelta(days=30))]
         df = df.dropna()
         for _, row in df.iterrows():
             _append_row("FRED", [str(row["date"]), row["dfii10"]])
         return df
-    
+
     df = pd.DataFrame(records)
     df["date"] = pd.to_datetime(df["date"]).dt.date
     latest = df["date"].max()
     today = datetime.now().date()
-    
+
     if (today - latest).days <= 2:
         print(f"    [sheets_db] FRED: current through {latest}")
         return df
-    
-    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFII10"
-    df_fresh = pd.read_csv(url)
-    df_fresh.columns = ["date", "dfii10"]
-    df_fresh["date"] = pd.to_datetime(df_fresh["date"]).dt.date
+
+    df_fresh = _fetch_fred_csv()
+    if df_fresh.empty:
+        return df
     df_fresh = df_fresh[df_fresh["date"] > latest].dropna()
-    
+
     for _, row in df_fresh.iterrows():
         _append_row("FRED", [str(row["date"]), row["dfii10"]])
-    
+
     print(f"    [sheets_db] FRED: synced {len(df_fresh)} new rows")
     return df
 

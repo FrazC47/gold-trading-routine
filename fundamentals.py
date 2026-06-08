@@ -44,7 +44,11 @@ def get_dual_macro_history():
         gld_vol = data["GLD"].set_index("date")[["volume"]].rename(columns={"volume": "GLD_Volume"})
         
         # FRED real yield
-        fred_df = data["FRED"].set_index("date")[["dfii10"]].rename(columns={"dfii10": "10Y_Real"})
+        if not data["FRED"].empty and "dfii10" in data["FRED"].columns:
+            fred_df = data["FRED"].set_index("date")[["dfii10"]].rename(columns={"dfii10": "10Y_Real"})
+        else:
+            print("    ⚠️  FRED real yield unavailable — 10Y_Real will be excluded.")
+            fred_df = pd.DataFrame(columns=["10Y_Real"])
         
         # EUR/USD — try Sheets first, fallback to AV
         if "EURUSD=X" in data and not data["EURUSD=X"].empty:
@@ -52,15 +56,21 @@ def get_dual_macro_history():
         else:
             eur = fetch_alpha_vantage_fx(start_40d)
         
-        # Combine
-        macro_df = pd.concat([gold, dxy, tnx, fred_df, gld_price, eur], axis=1)
+        # Combine (omit fred_df entirely if empty to avoid dropna killing all rows)
+        parts = [gold, dxy, tnx, gld_price, eur]
+        if not fred_df.empty:
+            parts.insert(3, fred_df)
+        macro_df = pd.concat(parts, axis=1)
+        # Normalize index to date objects for consistent comparison
+        macro_df.index = pd.to_datetime(macro_df.index).date
         volume_df = gld_vol
-        
+        volume_df.index = pd.to_datetime(volume_df.index).date
+
         # Filter to 40 days for display
         cutoff = (end - datetime.timedelta(days=40)).date()
-        macro_df = macro_df[macro_df.index >= pd.Timestamp(cutoff)]
+        macro_df = macro_df[macro_df.index >= cutoff]
         if not volume_df.empty:
-            volume_df = volume_df[volume_df.index >= pd.Timestamp(cutoff)]
+            volume_df = volume_df[volume_df.index >= cutoff]
     
     else:
         # ── FALLBACK PATH: Direct fetch (original behavior) ─────────
@@ -68,7 +78,10 @@ def get_dual_macro_history():
         macro_df, volume_df = fetch_all_direct(start_40d, end)
     
     # ── EXTRACT WINDOWS ───────────────────────────────────────────
-    combined_df = pd.concat([macro_df, volume_df], axis=1).dropna()
+    combined_df = pd.concat([macro_df, volume_df], axis=1)
+    # Drop rows only where core market data is missing (not optional columns like 10Y_Real)
+    core_cols = [c for c in ["Gold", "DXY", "10Y_Nominal", "GLD_Volume"] if c in combined_df.columns]
+    combined_df = combined_df.dropna(subset=core_cols)
     regime_20d = combined_df.tail(20)
     momentum_5d = combined_df.tail(5)
     
@@ -77,11 +90,12 @@ def get_dual_macro_history():
         'Gold': '{:,.2f}'.format,
         'DXY': '{:.2f}'.format,
         '10Y_Nominal': '{:.2f}%'.format,
-        '10Y_Real': '{:.2f}%'.format,
         'GLD_ETF': '${:,.2f}'.format,
         'GLD_Volume': '{:,.0f}'.format,
         'EUR_USD': '{:.4f}'.format
     }
+    if '10Y_Real' in combined_df.columns:
+        format_dict['10Y_Real'] = '{:.2f}%'.format
     
     print("\n[20-DAY MACRO REGIME (THE TREND)]")
     print("Context: The structural monthly macroeconomic environment, ETF demand, and Forex flows.")
@@ -98,15 +112,18 @@ def get_dual_macro_history():
     
     dxy_5d_high = momentum_5d["DXY"].max()
     dxy_5d_high_date = momentum_5d["DXY"].idxmax()
-    real_5d_high = momentum_5d["10Y_Real"].max()
-    real_5d_high_date = momentum_5d["10Y_Real"].idxmax()
     gold_5d_low = momentum_5d["Gold"].min()
     gold_5d_low_date = momentum_5d["Gold"].idxmin()
     gold_5d_open = momentum_5d["Gold"].iloc[0]
     gld_vol_5d_avg = momentum_5d["GLD_Volume"].mean() if "GLD_Volume" in momentum_5d else 0
-    
+
     print(f"DXY 5-day high:     {dxy_5d_high:.2f} (on {dxy_5d_high_date})")
-    print(f"Real Yield 5-day high: {real_5d_high:.2f}% (on {real_5d_high_date})")
+    if "10Y_Real" in momentum_5d.columns:
+        real_5d_high = momentum_5d["10Y_Real"].max()
+        real_5d_high_date = momentum_5d["10Y_Real"].idxmax()
+        print(f"Real Yield 5-day high: {real_5d_high:.2f}% (on {real_5d_high_date})")
+    else:
+        print("Real Yield 5-day high: N/A (FRED data unavailable)")
     print(f"Gold 5-day low:     ${gold_5d_low:,.2f} (on {gold_5d_low_date})")
     print(f"Gold 5-day open:    ${gold_5d_open:,.2f} (on {momentum_5d.index[0]})")
     print(f"GLD 5-day avg vol:  {gld_vol_5d_avg:,.0f}")
