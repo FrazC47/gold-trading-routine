@@ -13,6 +13,15 @@ import yfinance as yf
 import requests
 import io
 
+
+def _flatten_yf_columns(df):
+    """Flatten yfinance MultiIndex columns to simple lowercase strings."""
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [c[0].lower().replace(' ', '_') for c in df.columns]
+    else:
+        df.columns = [c.lower().replace(' ', '_') for c in df.columns]
+    return df
+
 # ─── CONFIG ──────────────────────────────────────────────────────────
 # Your GoldTracker workbook ID (from the URL)
 SHEET_ID = "1aJLVlqbpe4tzLRIozKTyajBchyj2CfGyo0mBCqRJwcE"
@@ -70,9 +79,11 @@ def sync_ticker(ticker):
         if df_yf.empty:
             return pd.DataFrame(columns=config["cols"])
         df_yf = df_yf.reset_index()
-        df_yf.columns = [c.lower().replace(' ', '_') for c in df_yf.columns]
+        df_yf = _flatten_yf_columns(df_yf)
+        date_col = "datetime" if "datetime" in df_yf.columns else "date"
+        df_yf = df_yf.rename(columns={date_col: "date"})
         df_yf["date"] = pd.to_datetime(df_yf["date"]).dt.date
-        
+
         for _, row in df_yf.iterrows():
             r = [str(row["date"]), row["open"], row["high"], row["low"], row["close"]]
             if "volume" in config["cols"]:
@@ -100,9 +111,11 @@ def sync_ticker(ticker):
         return df[config["cols"]]
     
     df_yf = df_yf.reset_index()
-    df_yf.columns = [c.lower().replace(' ', '_') for c in df_yf.columns]
+    df_yf = _flatten_yf_columns(df_yf)
+    date_col = "datetime" if "datetime" in df_yf.columns else "date"
+    df_yf = df_yf.rename(columns={date_col: "date"})
     df_yf["date"] = pd.to_datetime(df_yf["date"]).dt.date
-    
+
     appended = 0
     for _, row in df_yf.iterrows():
         if row["date"] > latest:
