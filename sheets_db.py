@@ -58,6 +58,19 @@ def _append_row(sheet_name, row):
     except Exception as e:
         print(f"    [sheets_db] Warning writing to {sheet_name}: {e}")
 
+# ─── YFINANCE COMPAT ─────────────────────────────────────────────────
+def _flatten_yf_columns(df):
+    """Normalize yfinance >=0.2 MultiIndex columns to flat lowercase strings."""
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [str(c[0]).lower().replace(' ', '_') for c in df.columns]
+    else:
+        df.columns = [
+            str(c[0]).lower().replace(' ', '_') if isinstance(c, tuple)
+            else str(c).lower().replace(' ', '_')
+            for c in df.columns
+        ]
+    return df
+
 # ─── SYNC ONE TICKER ─────────────────────────────────────────────────
 def sync_ticker(ticker):
     config = TICKER_CONFIG[ticker]
@@ -70,7 +83,7 @@ def sync_ticker(ticker):
         if df_yf.empty:
             return pd.DataFrame(columns=config["cols"])
         df_yf = df_yf.reset_index()
-        df_yf.columns = [c.lower().replace(' ', '_') for c in df_yf.columns]
+        df_yf = _flatten_yf_columns(df_yf)
         df_yf["date"] = pd.to_datetime(df_yf["date"]).dt.date
         
         for _, row in df_yf.iterrows():
