@@ -56,10 +56,12 @@ def get_dual_macro_history():
         macro_df = pd.concat([gold, dxy, tnx, fred_df, gld_price, eur], axis=1)
         volume_df = gld_vol
         
-        # Filter to 40 days for display
+        # Filter to 40 days for display (index may be datetime.date, not Timestamp)
         cutoff = (end - datetime.timedelta(days=40)).date()
+        macro_df.index = pd.to_datetime(macro_df.index)
         macro_df = macro_df[macro_df.index >= pd.Timestamp(cutoff)]
         if not volume_df.empty:
+            volume_df.index = pd.to_datetime(volume_df.index)
             volume_df = volume_df[volume_df.index >= pd.Timestamp(cutoff)]
     
     else:
@@ -68,7 +70,11 @@ def get_dual_macro_history():
         macro_df, volume_df = fetch_all_direct(start_40d, end)
     
     # ── EXTRACT WINDOWS ───────────────────────────────────────────
-    combined_df = pd.concat([macro_df, volume_df], axis=1).dropna()
+    combined_df = pd.concat([macro_df, volume_df], axis=1)
+    # Forward-fill real yield: FRED updates daily but may lag; carry last value forward
+    if "10Y_Real" in combined_df.columns:
+        combined_df["10Y_Real"] = combined_df["10Y_Real"].ffill()
+    combined_df = combined_df.dropna()
     regime_20d = combined_df.tail(20)
     momentum_5d = combined_df.tail(5)
     

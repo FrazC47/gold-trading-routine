@@ -70,37 +70,37 @@ def sync_ticker(ticker):
         if df_yf.empty:
             return pd.DataFrame(columns=config["cols"])
         df_yf = df_yf.reset_index()
-        df_yf.columns = [c.lower().replace(' ', '_') for c in df_yf.columns]
+        df_yf.columns = [c[0].lower().replace(' ', '_') if isinstance(c, tuple) else c.lower().replace(' ', '_') for c in df_yf.columns]
         df_yf["date"] = pd.to_datetime(df_yf["date"]).dt.date
-        
+
         for _, row in df_yf.iterrows():
             r = [str(row["date"]), row["open"], row["high"], row["low"], row["close"]]
             if "volume" in config["cols"]:
                 r.append(int(row["volume"]))
             _append_row(sheet, r)
         return df_yf[config["cols"]]
-    
+
     df = pd.DataFrame(records)
     df["date"] = pd.to_datetime(df["date"]).dt.date
     latest = df["date"].max()
     today = datetime.now().date()
-    
+
     days_missing = (today - latest).days
     if days_missing <= 1:
         print(f"    [sheets_db] {ticker}: current through {latest}")
         return df[config["cols"]]
-    
+
     start = (latest + timedelta(days=1)).strftime("%Y-%m-%d")
     end = (today + timedelta(days=1)).strftime("%Y-%m-%d")
     print(f"    [sheets_db] {ticker}: filling gap {start} → {end}")
-    
+
     df_yf = yf.download(ticker, start=start, end=end, interval="1d", progress=False)
     if df_yf.empty:
         print(f"    [sheets_db] {ticker}: no new data available")
         return df[config["cols"]]
-    
+
     df_yf = df_yf.reset_index()
-    df_yf.columns = [c.lower().replace(' ', '_') for c in df_yf.columns]
+    df_yf.columns = [c[0].lower().replace(' ', '_') if isinstance(c, tuple) else c.lower().replace(' ', '_') for c in df_yf.columns]
     df_yf["date"] = pd.to_datetime(df_yf["date"]).dt.date
     
     appended = 0
@@ -116,41 +116,68 @@ def sync_ticker(ticker):
     return df[config["cols"]]
 
 # ─── SYNC FRED ───────────────────────────────────────────────────────
+FRED_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFII10"
+FRED_FALLBACK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fred_fallback.csv")
+
+def _fetch_fred_csv(since_date=None):
+    """Fetch DFII10 from FRED with a hard timeout; returns DataFrame or raises."""
+    resp = requests.get(FRED_URL, timeout=12)
+    resp.raise_for_status()
+    df = pd.read_csv(io.StringIO(resp.text))
+    df.columns = ["date", "dfii10"]
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df = df.dropna()
+    if since_date:
+        df = df[df["date"] >= since_date]
+    return df
+
+def _load_fred_fallback():
+    """Load the locally cached FRED CSV when the API is unreachable."""
+    if not os.path.exists(FRED_FALLBACK):
+        return pd.DataFrame(columns=["date", "dfii10"])
+    df = pd.read_csv(FRED_FALLBACK)
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df = df.dropna()
+    print(f"    [sheets_db] FRED: using local fallback (last value: {df['date'].max()} = {df['dfii10'].iloc[-1]}%)")
+    return df
+
 def sync_fred():
     records = _read_sheet("FRED")
-    
+
     if not records:
         print("    [sheets_db] FRED: cold start — fetching from FRED...")
-        url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFII10"
-        df = pd.read_csv(url)
-        df.columns = ["date", "dfii10"]
-        df["date"] = pd.to_datetime(df["date"]).dt.date
-        df = df[df["date"] >= (datetime.now().date() - timedelta(days=30))]
-        df = df.dropna()
-        for _, row in df.iterrows():
-            _append_row("FRED", [str(row["date"]), row["dfii10"]])
-        return df
-    
+        cutoff = datetime.now().date() - timedelta(days=30)
+        try:
+            df = _fetch_fred_csv(since_date=cutoff)
+            for _, row in df.iterrows():
+                _append_row("FRED", [str(row["date"]), row["dfii10"]])
+            return df
+        except Exception as e:
+            print(f"    [sheets_db] FRED: API unreachable ({type(e).__name__}) — using fallback")
+            return _load_fred_fallback()
+
     df = pd.DataFrame(records)
     df["date"] = pd.to_datetime(df["date"]).dt.date
     latest = df["date"].max()
     today = datetime.now().date()
-    
+
     if (today - latest).days <= 2:
         print(f"    [sheets_db] FRED: current through {latest}")
         return df
-    
-    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFII10"
-    df_fresh = pd.read_csv(url)
-    df_fresh.columns = ["date", "dfii10"]
-    df_fresh["date"] = pd.to_datetime(df_fresh["date"]).dt.date
-    df_fresh = df_fresh[df_fresh["date"] > latest].dropna()
-    
-    for _, row in df_fresh.iterrows():
-        _append_row("FRED", [str(row["date"]), row["dfii10"]])
-    
-    print(f"    [sheets_db] FRED: synced {len(df_fresh)} new rows")
-    return df
+
+    print(f"    [sheets_db] FRED: filling gap {latest} → today...")
+    try:
+        df_fresh = _fetch_fred_csv(since_date=latest + timedelta(days=1))
+        df_fresh = df_fresh[df_fresh["date"] > latest]
+        for _, row in df_fresh.iterrows():
+            _append_row("FRED", [str(row["date"]), row["dfii10"]])
+        print(f"    [sheets_db] FRED: synced {len(df_fresh)} new rows")
+        return pd.concat([df, df_fresh], ignore_index=True)
+    except Exception as e:
+        print(f"    [sheets_db] FRED: API unreachable ({type(e).__name__}) — using stored + fallback")
+        fallback = _load_fred_fallback()
+        combined = pd.concat([df, fallback[fallback["date"] > latest]], ignore_index=True)
+        return combined.drop_duplicates("date").sort_values("date")
 
 # ─── SYNC ALL ────────────────────────────────────────────────────────
 def sync_all():
