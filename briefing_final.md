@@ -42,23 +42,23 @@
 
 | Event | Date | Time (ET) | Prior / Outcome |
 |---|---|---|---|
-| FOMC Rate Decision ✅ CONCLUDED | Tue, June 17 | 2:00 PM | Held at 3.50%–3.75%; dot plot raised median 2026 year-end rate to 3.8% from 3.4% — hawkish |
-| Initial Jobless Claims (holiday-shifted) | Wed, June 18 | 8:30 AM | 229,000 (week ending June 6) |
-| **US Markets CLOSED — Juneteenth** | Thu, June 19 | — | — |
+| FOMC Rate Decision ✅ CONCLUDED | Wed, June 17 | 2:00 PM | Held at 3.50%–3.75%; dot plot raised median 2026 year-end rate to 3.8% from 3.4% — hawkish |
+| Initial Jobless Claims | Thu, June 18 | 8:30 AM | 229,000 (week ending June 6) |
+| **US Markets CLOSED — Juneteenth** | Fri, June 19 | — | — |
 
 **Next week (June 22–26, 2026):**
 
 | Event | Date | Time (ET) | Prior |
 |---|---|---|---|
 | Core PCE / Personal Income & Outlays (May) | Thu, June 25 | 8:30 AM | ~2.2% y/y (April PCE) |
-| Initial Jobless Claims | Thu, June 26 | 8:30 AM | 229,000 |
+| Initial Jobless Claims | Thu, June 25 | 8:30 AM | 229,000 |
 
 **Month ahead (July 2026):**
 
 | Event | Date | Time (ET) |
 |---|---|---|
 | ISM Manufacturing PMI | Wed, July 1 | 10:00 AM |
-| ADP Employment Report | Wed, July 2 | 8:15 AM |
+| ADP Employment Report | Wed, July 1 | 8:15 AM |
 | Non-Farm Payrolls (NFP) | Fri, July 3 | 8:30 AM |
 
 ---
