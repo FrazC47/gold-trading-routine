@@ -70,9 +70,12 @@ def sync_ticker(ticker):
         if df_yf.empty:
             return pd.DataFrame(columns=config["cols"])
         df_yf = df_yf.reset_index()
-        df_yf.columns = [c.lower().replace(' ', '_') for c in df_yf.columns]
+        df_yf.columns = [
+            (c[0] if isinstance(c, tuple) else c).lower().replace(' ', '_')
+            for c in df_yf.columns
+        ]
         df_yf["date"] = pd.to_datetime(df_yf["date"]).dt.date
-        
+
         for _, row in df_yf.iterrows():
             r = [str(row["date"]), row["open"], row["high"], row["low"], row["close"]]
             if "volume" in config["cols"]:
@@ -100,9 +103,12 @@ def sync_ticker(ticker):
         return df[config["cols"]]
     
     df_yf = df_yf.reset_index()
-    df_yf.columns = [c.lower().replace(' ', '_') for c in df_yf.columns]
+    df_yf.columns = [
+        (c[0] if isinstance(c, tuple) else c).lower().replace(' ', '_')
+        for c in df_yf.columns
+    ]
     df_yf["date"] = pd.to_datetime(df_yf["date"]).dt.date
-    
+
     appended = 0
     for _, row in df_yf.iterrows():
         if row["date"] > latest:
