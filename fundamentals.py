@@ -55,7 +55,9 @@ def get_dual_macro_history():
         # Combine
         macro_df = pd.concat([gold, dxy, tnx, fred_df, gld_price, eur], axis=1)
         volume_df = gld_vol
-        
+        macro_df.index = pd.to_datetime(macro_df.index)
+        volume_df.index = pd.to_datetime(volume_df.index)
+
         # Filter to 40 days for display
         cutoff = (end - datetime.timedelta(days=40)).date()
         macro_df = macro_df[macro_df.index >= pd.Timestamp(cutoff)]
